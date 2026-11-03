@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Baby Log</title>
+<style>
+/* ---------- Look: colours live in variables so dark mode is easy ---------- */
+:root{--bg:#f5f3f0;--card:#fff;--ink:#1f2a37;--mute:#6b7685;--line:#e6e2dc;
+  --left:#e0728f;--right:#4f8fc0;--pump:#7a6bc4;--water:#3aa6a0;--ok:#2e8b57}
+@media(prefers-color-scheme:dark){:root{--bg:#12161c;--card:#1b222b;--ink:#eef1f5;--mute:#98a3b3;--line:#2a333f;
+  --left:#f08aa5;--right:#6db0e3;--pump:#9a8be0;--water:#55c7c0;--ok:#5cc58a}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;line-height:1.4}
+main{max-width:480px;margin:0 auto;padding:16px 16px 48px}
+h1{font-size:1.4rem;margin:8px 0 16px}
+h2{font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin:28px 0 10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px}
+.timer{text-align:center;margin-bottom:12px}
+.timer .t{font-size:2.6rem;font-weight:700;font-variant-numeric:tabular-nums}
+.timer .s{color:var(--mute)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+button{font:inherit;cursor:pointer}
+.big{min-height:64px;border:0;border-radius:14px;color:#fff;font-weight:600;font-size:1rem}
+.big.left{background:var(--left)} .big.right{background:var(--right)}
+.big.pump{background:var(--pump)} .big.water{background:var(--water)}
+.big.active{outline:3px solid var(--ink)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center}
+.stats b{display:block;font-size:1.3rem;font-variant-numeric:tabular-nums}
+.stats span{font-size:.72rem;color:var(--mute)}
+.chart{display:flex;align-items:flex-end;gap:6px;height:120px;padding-top:18px}
+.col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;min-width:0}
+.bar{width:100%;display:flex;flex-direction:column-reverse;border-radius:6px 6px 0 0;overflow:hidden}
+.val{font-size:.68rem;color:var(--mute);font-variant-numeric:tabular-nums}
+.day{font-size:.7rem;color:var(--mute);margin-top:4px}
+.legend{font-size:.75rem;color:var(--mute);margin-top:8px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin:0 4px 0 8px}
+ul{list-style:none;margin:0;padding:0}
+li{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+li:last-child{border:0}
+.tag{width:10px;height:10px;border-radius:50%;flex:none}
+li .what{flex:1;min-width:0}
+li small{color:var(--mute);display:block}
+.del{border:0;background:none;color:var(--mute);font-size:1.2rem;padding:4px 8px}
+.form{display:grid;gap:10px;margin-top:10px}
+label{font-size:.85rem;color:var(--mute);display:grid;gap:4px}
+input{font:inherit;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);width:100%}
+.save{min-height:48px;border:0;border-radius:12px;background:var(--ok);color:#fff;font-weight:600}
+.link{font-size:.8rem;word-break:break-all;background:var(--bg);padding:8px;border-radius:8px;margin:4px 0 10px}
+.toast{position:fixed;left:16px;right:16px;bottom:16px;max-width:448px;margin:0 auto;background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:12px;text-align:center}
+.toast[hidden]{display:none}
+.empty{color:var(--mute);text-align:center;padding:12px 0}
+</style>
+</head>
+<body>
+<main>
+<h1>Baby Log</h1>
+
+<div class="card timer" id="timerBox" hidden>
+  <div class="s" id="timerSide"></div>
+  <div class="t" id="timerClock">00:00</div>
+</div>
+
+<div class="grid">
+  <button class="big left" id="bLeft">Left breast</button>
+  <button class="big right" id="bRight">Right breast</button>
+  <button class="big pump" id="bPump">Pumped milk</button>
+  <button class="big water" id="bWater">+ Water</button>
+</div>
+
+<form class="card form" id="pumpForm" hidden>
+  <label>Minutes pumped <input id="pMin" type="number" inputmode="numeric" min="0" placeholder="15"></label>
+  <label>Amount (ml) <input id="pMl" type="number" inputmode="numeric" min="0" placeholder="90"></label>
+  <button class="save" type="submit">Save pumped milk</button>
+</form>
+
+<h2>Today</h2>
+<div class="card stats">
+  <div><b id="sFeeds">0</b><span>feeds</span></div>
+  <div><b id="sMin">0</b><span>min nursing</span></div>
+  <div><b id="sPump">0</b><span>ml pumped</span></div>
+  <div><b id="sWater">0</b><span>ml water</span></div>
+</div>
+
+<h2>Today's entries</h2>
+<div class="card"><ul id="list"></ul></div>
+
+<h2>Minutes nursing, last 7 days</h2>
+<div class="card"><div class="chart" id="chartNurse"></div>
+  <div class="legend"><span class="dot" style="background:var(--left);margin-left:0"></span>Left<span class="dot" style="background:var(--right)"></span>Right</div></div>
+
+<h2>Pumped milk (ml), last 7 days</h2>
+<div class="card"><div class="chart" id="chartPump"></div></div>
+
+<h2>Water (ml), last 7 days</h2>
+<div class="card"><div class="chart" id="chartWater"></div></div>
+
+<h2>Tag links</h2>
+<div class="card">
+  <div style="font-size:.85rem;color:var(--mute);margin-bottom:8px">Write one of these links to each NFC tag.</div>
+  <div id="links"></div>
+</div>
+</main>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+/* ---------- 1. Storage ----------
+   Everything is saved in the phone's browser (localStorage).
+   Each entry: {id, type:'left'|'right'|'pump'|'water', start, min, ml} */
+var WATER_ML = 250;                 // how much one water tap adds
+var KEY = 'babylog.entries', TKEY = 'babylog.timer';
+var memory = {};                    // fallback if storage is blocked
+
+function load(key, fallback){
+  try { var v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
+  catch(e){ return memory[key] !== undefined ? memory[key] : fallback; }
+}
+function save(key, value){
+  memory[key] = value;
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch(e){}
+}
+var entries = load(KEY, []);
+var timer = load(TKEY, null);       // {side, start} while a feed is running
+
+/* ---------- 2. Actions ---------- */
+function addEntry(e){ e.id = Date.now() + Math.random(); entries.push(e); save(KEY, entries); }
+
+function stopTimer(){
+  if(!timer) return null;
+  var minutes = Math.max(1, Math.round((Date.now() - timer.start) / 60000));
+  addEntry({type: timer.side, start: timer.start, min: minutes});
+  var done = {side: timer.side, min: minutes};
+  timer = null; save(TKEY, null);
+  return done;
+}
+function toggleSide(side){
+  var wasSame = timer && timer.side === side;
+  var done = stopTimer();
+  if(wasSame){ toast(cap(side) + ' saved: ' + done.min + ' min'); }
+  else { timer = {side: side, start: Date.now()}; save(TKEY, timer);
+         toast((done ? cap(done.side) + ' saved: ' + done.min + ' min. ' : '') + cap(side) + ' started'); }
+  render();
+}
+function addWater(){ addEntry({type:'water', start: Date.now(), ml: WATER_ML}); toast('+' + WATER_ML + ' ml water'); render(); }
+function showPumpForm(){ document.getElementById('pumpForm').hidden = false; document.getElementById('pMl').focus(); }
+
+/* ---------- 3. Helpers ---------- */
+function cap(s){ return s.charAt(0).toUpperCase() + s.slice(1); }
+function dayKey(t){ var d = new Date(t); return d.getFullYear() + '-' + (d.getMonth()+1) + '-' + d.getDate(); }
+function fmtTime(t){ return new Date(t).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); }
+function sum(list, f){ return list.reduce(function(a,e){ return a + (f(e) || 0); }, 0); }
+function toast(msg){
+  var t = document.getElementById('toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.h); toast.h = setTimeout(function(){ t.hidden = true; }, 3500);
+}
+
+/* ---------- 4. Drawing the page ---------- */
+var COLORS = {left:'var(--left)', right:'var(--right)', pump:'var(--pump)', water:'var(--water)'};
+var NAMES = {left:'Left breast', right:'Right breast', pump:'Pumped', water:'Water'};
+
+function renderToday(){
+  var today = entries.filter(function(e){ return dayKey(e.start) === dayKey(Date.now()); });
+  var nursing = today.filter(function(e){ return e.type==='left' || e.type==='right'; });
+  document.getElementById('sFeeds').textContent = nursing.length;
+  document.getElementById('sMin').textContent = sum(nursing, function(e){return e.min;});
+  document.getElementById('sPump').textContent = sum(today.filter(function(e){return e.type==='pump';}), function(e){return e.ml;});
+  document.getElementById('sWater').textContent = sum(today.filter(function(e){return e.type==='water';}), function(e){return e.ml;});
+
+  var ul = document.getElementById('list'); ul.innerHTML = '';
+  if(!today.length){ ul.innerHTML = '<li class="empty">No entries yet today.</li>'; return; }
+  today.slice().sort(function(a,b){ return b.start - a.start; }).forEach(function(e){
+    var li = document.createElement('li');
+    var detail = e.type==='pump' ? ((e.min ? e.min + ' min, ' : '') + e.ml + ' ml')
+               : e.type==='water' ? e.ml + ' ml' : e.min + ' min';
+    li.innerHTML = '<span class="tag" style="background:' + COLORS[e.type] + '"></span>' +
+      '<span class="what">' + NAMES[e.type] + '<small>' + fmtTime(e.start) + ' · ' + detail + '</small></span>' +
+      '<button class="del" aria-label="Delete entry">×</button>';
+    li.querySelector('.del').onclick = function(){
+      entries = entries.filter(function(x){ return x.id !== e.id; }); save(KEY, entries); render();
+    };
+    ul.appendChild(li);
+  });
+}
+
+/* Draws a 7-day bar chart. parts = list of {type, value(entry)} stacked in order. */
+function drawChart(elId, types, valueOf){
+  var el = document.getElementById(elId); el.innerHTML = '';
+  var days = [];
+  for(var i = 6; i >= 0; i--){ var d = new Date(); d.setDate(d.getDate() - i); days.push(d); }
+  var data = days.map(function(d){
+    var key = dayKey(d.getTime());
+    var parts = types.map(function(t){
+      return sum(entries.filter(function(e){ return e.type === t && dayKey(e.start) === key; }), valueOf);
+    });
+    return {label: d.toLocaleDateString([], {weekday:'narrow'}), parts: parts, total: sum(parts, function(x){return x;})};
+  });
+  var max = Math.max.apply(null, data.map(function(x){return x.total;}).concat([1]));
+  data.forEach(function(x){
+    var col = document.createElement('div'); col.className = 'col';
+    var bar = '';
+    x.parts.forEach(function(v, i){
+      if(v > 0) bar += '<div style="height:' + (v / max * 80) + 'px;background:' + COLORS[types[i]] + '"></div>';
+    });
+    col.innerHTML = '<div class="val">' + (x.total || '') + '</div><div class="bar">' + bar + '</div><div class="day">' + x.label + '</div>';
+    el.appendChild(col);
+  });
+}
+
+function renderTimer(){
+  var box = document.getElementById('timerBox');
+  document.getElementById('bLeft').classList.toggle('active', !!timer && timer.side==='left');
+  document.getElementById('bRight').classList.toggle('active', !!timer && timer.side==='right');
+  if(!timer){ box.hidden = true; return; }
+  box.hidden = false;
+  document.getElementById('timerSide').textContent = cap(timer.side) + ' breast, tap again to stop';
+  var s = Math.floor((Date.now() - timer.start) / 1000);
+  document.getElementById('timerClock').textContent =
+    String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
+}
+
+function render(){
+  renderToday(); renderTimer();
+  drawChart('chartNurse', ['left','right'], function(e){return e.min;});
+  drawChart('chartPump', ['pump'], function(e){return e.ml;});
+  drawChart('chartWater', ['water'], function(e){return e.ml;});
+}
+
+/* ---------- 5. Buttons and NFC links ---------- */
+document.getElementById('bLeft').onclick = function(){ toggleSide('left'); };
+document.getElementById('bRight').onclick = function(){ toggleSide('right'); };
+document.getElementById('bWater').onclick = addWater;
+document.getElementById('bPump').onclick = showPumpForm;
+document.getElementById('pumpForm').onsubmit = function(ev){
+  ev.preventDefault();
+  var ml = parseInt(document.getElementById('pMl').value, 10);
+  var min = parseInt(document.getElementById('pMin').value, 10);
+  if(!ml){ toast('Enter the amount in ml'); return; }
+  addEntry({type:'pump', start: Date.now(), min: min || 0, ml: ml});
+  document.getElementById('pumpForm').reset(); document.getElementById('pumpForm').hidden = true;
+  toast('Pumped ' + ml + ' ml saved'); render();
+};
+
+/* A tag link looks like  .../feeds/?a=left  . Read the action once, then
+   remove it from the address so a page refresh does not repeat it. */
+var action = new URLSearchParams(location.search).get('a');
+if(action){
+  try { history.replaceState(null, '', location.pathname); } catch(e){}
+  if(action==='left' || action==='right') toggleSide(action);
+  else if(action==='water') addWater();
+  else if(action==='pump') showPumpForm();
+}
+
+var base = location.origin + location.pathname;
+document.getElementById('links').innerHTML = ['left','right','pump','water'].map(function(a){
+  return '<div><b>' + NAMES[a] + '</b></div><div class="link">' + base + '?a=' + a + '</div>';
+}).join('');
+
+render();
+setInterval(renderTimer, 1000);
+</script>
+</body>
+</html>
