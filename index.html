@@ -97,6 +97,16 @@ input{font:inherit;padding:12px;border-radius:10px;border:1px solid var(--line);
 <h2>Water (ml), last 7 days</h2>
 <div class="card"><div class="chart" id="chartWater"></div></div>
 
+<h2>Backup</h2>
+<div class="card">
+  <div style="font-size:.85rem;color:var(--mute);margin-bottom:10px">Save your log as a CSV file (opens in Numbers, Excel or Sheets), or load one back in. Importing adds entries and never deletes what is already here.</div>
+  <div class="grid">
+    <button class="save" id="bExport" type="button">Export</button>
+    <button class="save" id="bImport" type="button">Import</button>
+  </div>
+  <input id="importFile" type="file" accept=".csv,.json,text/csv,application/json" hidden>
+</div>
+
 <h2>Tag links</h2>
 <div class="card">
   <div style="font-size:.85rem;color:var(--mute);margin-bottom:8px">Write one of these links to each NFC tag.</div>
@@ -240,6 +250,76 @@ document.getElementById('pumpForm').onsubmit = function(ev){
   addEntry({type:'pump', start: Date.now(), min: min || 0, ml: ml});
   document.getElementById('pumpForm').reset(); document.getElementById('pumpForm').hidden = true;
   toast('Pumped ' + ml + ' ml saved'); render();
+};
+
+/* ---------- Backup: export and import (CSV) ----------
+   CSV is a plain table you can open in Numbers, Excel or Google Sheets.
+   Columns: date, time, type, minutes, ml.  If your spreadsheet shows everything
+   in one column, change CSV_SEP to ';' (Portuguese Excel prefers that). */
+var CSV_SEP = ',';
+function pad(n){ return String(n).padStart(2, '0'); }
+
+document.getElementById('bExport').onclick = function(){
+  var rows = entries.slice().sort(function(a, b){ return a.start - b.start; }).map(function(e){
+    var d = new Date(e.start);
+    return [d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()),
+            pad(d.getHours()) + ':' + pad(d.getMinutes()), e.type, e.min || 0, e.ml || 0].join(CSV_SEP);
+  });
+  var text = ['date','time','type','minutes','ml'].join(CSV_SEP) + '\n' + rows.join('\n') + '\n';
+  var blob = new Blob(['\ufeff' + text], {type: 'text/csv'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'babylog-' + new Date().toISOString().slice(0, 10) + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
+  toast('Exported ' + entries.length + ' entries');
+};
+
+/* Turns file text into a list of {type, start, min, ml}. Reads CSV (and the older JSON backup). */
+function parseBackup(text){
+  text = text.replace(/^\ufeff/, '').trim();
+  if(text.charAt(0) === '{' || text.charAt(0) === '['){
+    var data = JSON.parse(text);
+    return (Array.isArray(data) ? data : data.entries).map(function(e){ return {type: e.type, start: e.start, min: e.min, ml: e.ml}; });
+  }
+  var lines = text.split(/\r?\n/).filter(function(l){ return l.trim(); });
+  var sep = lines[0].indexOf(';') > -1 ? ';' : ',';
+  var head = lines[0].toLowerCase().split(sep).map(function(h){ return h.trim(); });
+  var col = {}; ['date','time','type','minutes','ml'].forEach(function(n){ col[n] = head.indexOf(n); });
+  if(col.date < 0 || col.time < 0 || col.type < 0) throw new Error('missing columns');
+  return lines.slice(1).map(function(l){
+    var c = l.split(sep).map(function(x){ return x.trim(); });
+    var d = c[col.date].split('-').map(Number), t = c[col.time].split(':').map(Number);
+    return {type: c[col.type].toLowerCase(), start: new Date(d[0], d[1]-1, d[2], t[0], t[1]).getTime(),
+            min: col.minutes > -1 ? c[col.minutes] : 0, ml: col.ml > -1 ? c[col.ml] : 0};
+  });
+}
+
+/* Entries are matched by type + minute, so importing the same file twice adds nothing. */
+function entryKey(e){ return e.type + '|' + Math.floor(e.start / 60000); }
+
+document.getElementById('bImport').onclick = function(){ document.getElementById('importFile').click(); };
+document.getElementById('importFile').onchange = function(ev){
+  var file = ev.target.files[0]; if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(){
+    try {
+      var list = parseBackup(reader.result);
+      var have = {}, used = {}, added = 0;
+      entries.forEach(function(e){ var k = entryKey(e); have[k] = (have[k] || 0) + 1; });
+      list.forEach(function(e){
+        if(!NAMES[e.type] || !isFinite(e.start)) return;
+        var k = entryKey(e); used[k] = (used[k] || 0) + 1;
+        if(used[k] <= (have[k] || 0)) return;            // already in the log
+        entries.push({id: Date.now() + Math.random(), type: e.type, start: e.start, min: Number(e.min) || 0, ml: Number(e.ml) || 0});
+        added++;
+      });
+      save(KEY, entries); render();
+      toast('Imported ' + added + ' new entries');
+    } catch(err){ toast('That file is not a Baby Log backup'); }
+    ev.target.value = '';
+  };
+  reader.readAsText(file);
 };
 
 /* A tag link looks like  .../feeds/?a=left  . Read the action once, then
